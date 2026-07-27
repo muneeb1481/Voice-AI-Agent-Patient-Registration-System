@@ -2,22 +2,25 @@ services:
   - type: web
     name: patient-registration-api
     runtime: python
-    # Persistent disks require a paid instance. On the free plan, delete the
-    # `disk:` block below and set DATABASE_PATH=patients.db — data then survives
-    # restarts but NOT redeploys (see README > Known limitations).
-    plan: starter
+    # Free plan. Persistent disks require a paid instance, so the SQLite file
+    # lives on the instance filesystem: it survives restarts but NOT redeploys.
+    # Two consequences, both documented in README > Known limitations:
+    #   1. Don't push to main during a demo window.
+    #   2. Free services idle out after 15 min (~40s cold start, which a caller
+    #      would hear as dead air) — an external cron pings /health every 10 min
+    #      to keep the instance warm. See README > Deploy.
+    # To upgrade: set plan to `starter`, add a disk mounted at /var/data, and
+    # point DATABASE_PATH at /var/data/patients.db.
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      # Persistent disk keeps the SQLite file across deploys and restarts.
+      - key: PYTHON_VERSION
+        value: "3.12.7"
       - key: DATABASE_PATH
-        value: /var/data/patients.db
+        value: patients.db
       - key: SEED_DATA
         value: "true"
       - key: VAPI_SERVER_SECRET
         sync: false          # set this in the Render dashboard, never in git
-    disk:
-      name: patient-data
-      mountPath: /var/data
-      sizeGB: 1

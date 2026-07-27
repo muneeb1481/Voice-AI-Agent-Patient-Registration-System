@@ -112,15 +112,21 @@ pytest -q          # 12 integration tests over the REST API and tool webhook
 No API keys live in this repo. The Groq and Twilio credentials live in the Vapi
 dashboard; the only secret the backend knows is the webhook shared secret.
 
-### Deploy (Render)
+### Deploy (Render, free tier)
 
 1. Push this repo to GitHub.
-2. Render → **New → Web Service** → connect the repo. `render.yaml` is picked up
-   automatically (Blueprint), or set manually:
+2. Render → **New → Blueprint** → connect the repo. [render.yaml](render.yaml) is
+   picked up automatically, or configure manually:
    - Build: `pip install -r requirements.txt`
    - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-3. Set `VAPI_SERVER_SECRET` in the dashboard (any long random string).
+3. Set `VAPI_SERVER_SECRET` when prompted (any long random string —
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
 4. Verify: `curl https://<your-app>.onrender.com/health` → `{"data":{"status":"ok"},"error":null}`
+5. **Keep it warm.** Free services idle out after 15 minutes and cold-start in
+   ~40 s — which a caller hears as dead air on the first tool call, mid-sentence.
+   A free cron (cron-job.org, UptimeRobot) hitting `/health` every 10 minutes
+   removes the problem entirely. This is the single most important deployment
+   step for the phone experience.
 
 ---
 
@@ -229,10 +235,15 @@ the same records plus end-of-call transcripts, queryable alongside patients.
 
 - **SQLite, single instance.** Fine for one phone line; horizontal scaling would
   need Postgres. Only `db.py`/`repository.py` would change.
-- **Render free tier has no persistent disk** and cold-starts after 15 min idle
-  (~30–50 s), which a caller would hear as dead air on the first tool call. The
-  committed `render.yaml` uses the paid Starter plan with a 1 GB disk for this
-  reason; on free, data survives restarts but not redeploys.
+- **Render's free tier has no persistent disk**, so the SQLite file survives
+  restarts but not *redeploys*. Deliberate trade-off: the assessment's persistence
+  requirement is "survives restarts / a second call", which this meets, and the
+  cost of a paid instance wasn't warranted for a demo. The practical rule is
+  don't push to `main` during a demo window. Upgrading is a three-line change to
+  `render.yaml` (see the comment there).
+- **Free instances idle out after 15 minutes**, and a ~40 s cold start lands as
+  dead air mid-call. Mitigated with an external cron pinging `/health` every 10
+  minutes rather than by paying for an always-on instance.
 - **Twilio trial account** may only place/receive calls with verified numbers —
   reviewer numbers must be verified in Twilio, or the account upgraded.
 - **No auth on the REST API.** The tool webhook is protected by a shared secret,
