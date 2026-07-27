@@ -28,7 +28,7 @@ conversation, persists them to a database, and exposes them over a REST API.
               ┌───────────────────┐
               │       Vapi        │  telephony + turn-taking
               │  Soniox  (STT)    │
-              │  Groq LLM (brain) │  ← system prompt: vapi/system_prompt.md
+              │  Kimi K2 (brain)  │  ← system prompt: vapi/system_prompt.md
               │  Elliot  (TTS)    │
               └─────────┬─────────┘
                         │ HTTPS tool calls  (POST /vapi/tools)
@@ -77,10 +77,49 @@ render.yaml             Deploy config
 | Layer | Choice | Rationale |
 |---|---|---|
 | Telephony/STT/TTS | **Vapi** + Twilio number | Abstracts the real-time audio pipeline, barge-in, and endpointing. Building that from scratch is not what's being assessed. |
-| LLM | **Groq** (`llama-3.3-70b-versatile`) via Vapi Custom LLM | Vapi-managed models were not enabled on this org; Groq's OpenAI-compatible endpoint plugs straight in and its latency is a genuine win on voice. |
+| LLM | **Kimi K2 Instruct 0905** on Groq | Groq for latency (620 ms), which matters more on a phone call than anywhere else. Kimi specifically — see *Choosing the model* below; the first two candidates failed in instructive ways. |
 | Backend | **FastAPI** | Pydantic validation *is* the data model — one definition drives request parsing, the tool webhook, and OpenAPI docs. |
 | DB | **SQLite** | Single file, zero ops, survives restarts, and the write volume of a phone line is nowhere near its limits. `repository.py` is the only module that would change for Postgres. |
-| Hosting | **Render** | Free tier, HTTPS out of the box (Vapi requires it), optional persistent disk. |
+| Hosting | **Render** | Free tier, HTTPS out of the box (Vapi requires it). Kept warm by a GitHub Actions cron rather than paying for an always-on instance. |
+
+### Choosing the model
+
+Three models were tried on live calls. The failures were specific enough to be
+worth recording, because they're not things a prompt can fix.
+
+**GPT OSS 20B** — too small to hold five tools plus a branching flow. It stacked
+two questions into one breath, called `list_appointment_slots` in the middle of
+collecting a phone number, and re-asked for the same field repeatedly.
+
+**GPT OSS 120B** — smarter, but it spoke its own reasoning aloud: *"What's your
+date of birth? Wait for user, what's your date of birth?"* and *"We'll wait for
+the caller's response."* The GPT-OSS family emits separate analysis and final
+channels, and the analysis channel was reaching the TTS. Worse, it **hallucinated
+field values** — in one call it volunteered a ZIP code the caller never said, and
+would have persisted it. An explicit "never invent a value" rule in the prompt did
+not stop it. In a patient intake system, silently fabricated data is the most
+serious failure mode there is, so this model was disqualified rather than tuned.
+
+**Kimi K2 Instruct 0905** — same intelligence tier, no reasoning channel to leak,
+and it stopped inventing values. 620 ms vs 450 ms is imperceptible against a
+~1.1 s end-to-end voice loop.
+
+The lesson worth carrying: when an agent misbehaves, separate *prompt* problems
+from *model* problems early. Stage directions in the output and invented field
+values are model-capability symptoms — more prompt engineering only wastes time.
+
+### Tuning the voice channel
+
+Two settings mattered more than any prompt wording:
+
+- **Smart Endpointing on, `onNumberSeconds` 3.0.** Callers dictate phone numbers
+  in chunks — "two zero six… five five five… zero one nine nine" — and each chunk
+  arrives as its own turn. At the default the agent treated the first pause as
+  end-of-turn and replied over the caller.
+- **Never acknowledge a partial number.** An earlier prompt had the agent confirm
+  progress ("Got two-oh-six — and the rest?"). That put its audio on top of the
+  caller's and the transcriber dropped a digit, producing a 9-digit phone number.
+  The prompt now requires silence until the whole number is spoken.
 
 ---
 
@@ -105,7 +144,8 @@ curl http://localhost:8000/patients
 Run the tests:
 
 ```bash
-pytest -q          # 12 integration tests over the REST API and tool webhook
+pytest -q          # 16 integration tests over the REST API, tool webhook,
+                   # appointment booking, transcript linking and the dashboard
 ```
 
 ### Environment variables
@@ -145,8 +185,11 @@ dashboard; the only secret the backend knows is the webhook shared secret.
    - Server URL for each: `https://<your-app>.onrender.com/vapi/tools`
    - Custom header: `X-Vapi-Secret: <VAPI_SERVER_SECRET>`
    - Async: off — the agent must wait for the result before speaking.
-2. **Assistant → Model** → paste the prompt from
-   [vapi/system_prompt.md](vapi/system_prompt.md) and attach all five tools.
+2. **Assistant → Model** → Groq / **Kimi K2 Instruct 0905**, temperature **0.3**,
+   max tokens **500** (the read-back recites a dozen fields in one turn and
+   truncates at the 250 default). Paste the prompt from
+   [vapi/system_prompt.md](vapi/system_prompt.md) and attach all five tools, plus
+   the built-in **Hang Up** tool so the agent can end the call itself.
 3. **Assistant → First Message**:
    > "Thanks for calling Northside Family Health, this is Alex. Are you calling to
    > register as a new patient?"
@@ -154,7 +197,9 @@ dashboard; the only secret the backend knows is the webhook shared secret.
    Keep the greeting *only* here — repeating it in the system prompt makes the
    agent greet twice.
 4. **Assistant → Advanced → Server URL**: `https://<your-app>.onrender.com/vapi/events`
-   (same secret header) — this stores end-of-call transcripts.
+   (same secret header) — this stores end-of-call transcripts. In the same panel:
+   **Smart Endpointing → Vapi**, **On Number Seconds → 3.0**, silence timeout 60 s.
+   These are what make dictated phone numbers and ZIP codes survive the call.
 5. **Phone Numbers** → select the imported Twilio number → assign this assistant.
 6. Call the number.
 
@@ -269,13 +314,21 @@ the same records plus end-of-call transcripts, queryable alongside patients.
 - **The dashboard is unauthenticated and read-only**, like the rest of the API.
 - **Spanish support** is prompt-level only. The STT is configured for English, so
   accuracy on a fully Spanish call will be degraded.
+- **Dictated digits remain the weakest link.** Phone numbers, ZIP codes and dates
+  are spoken in chunks, and any overlap between the agent's audio and the caller's
+  can cost a digit. The current settings and prompt make this rare, not impossible.
+  The proper fix is DTMF: Vapi supports keypad input, and letting callers *type*
+  their phone number would remove the failure class entirely rather than tuning
+  around it. That's the first thing I'd add with more time.
 
 ## Next steps
 
-1. Postgres + Alembic migrations.
-2. API-key auth and per-IP rate limiting on `/patients`.
-3. Real calendar integration behind `scheduling.available_slots()`, plus SMS
+1. **DTMF keypad entry for phone numbers and ZIP codes** — the single highest-value
+   change, for the reason in the limitations above.
+2. Postgres + Alembic migrations.
+3. API-key auth and per-IP rate limiting on `/patients`.
+4. Real calendar integration behind `scheduling.available_slots()`, plus SMS
    confirmations for booked appointments.
-4. Persist the call→patient map so transcripts survive a restart.
-5. Address verification against a USPS/Smarty lookup instead of regex-only ZIP checks.
-6. Retry-with-backoff around the DB write before surfacing an error to the caller.
+5. Persist the call→patient map so transcripts survive a restart.
+6. Address verification against a USPS/Smarty lookup instead of regex-only ZIP checks.
+7. Retry-with-backoff around the DB write before surfacing an error to the caller.
