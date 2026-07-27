@@ -10,6 +10,10 @@ conversation, persists them to a database, and exposes them over a REST API.
 | **Dashboard** | https://voice-ai-agent-patient-registration.onrender.com/ |
 | **API docs** | https://voice-ai-agent-patient-registration.onrender.com/docs |
 
+> **When you call, you'll first hear "You have a trial account…" — press any key
+> and the agent answers.** That prompt is Twilio's trial-account banner, not part
+> of this system; removing it requires upgrading the Twilio account off trial.
+>
 > Hosted on Render's free tier, kept warm by a scheduled ping so calls don't hit a
 > cold start. No credentials are needed to browse the dashboard or read the API.
 
@@ -247,8 +251,9 @@ the same records plus end-of-call transcripts, queryable alongside patients.
 - **Free instances idle out after 15 minutes**, and a ~40 s cold start lands as
   dead air mid-call. Mitigated with an external cron pinging `/health` every 10
   minutes rather than by paying for an always-on instance.
-- **Twilio trial account** may only place/receive calls with verified numbers —
-  reviewer numbers must be verified in Twilio, or the account upgraded.
+- **Twilio trial account** plays a "You have a trial account" prompt before
+  connecting; the caller presses any key to continue. Upgrading removes it but
+  requires a payment method, which wasn't warranted for a demo line.
 - **No auth on the REST API.** The tool webhook is protected by a shared secret,
   but `/patients` is open. Real deployment needs an API key or OAuth.
 - **PHI is stored in plaintext.** Deliberately out of scope per the brief; a real
