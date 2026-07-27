@@ -5,7 +5,7 @@ conversation, persists them to a database, and exposes them over a REST API.
 
 | | |
 |---|---|
-| **Phone number** | `+1 XXX XXX XXXX` _(fill in after linking the Twilio number in Vapi)_ |
+| **Phone number** | **+1 (518) 629-1790** — call to register a patient |
 | **API base URL** | https://voice-ai-agent-patient-registration.onrender.com |
 | **Dashboard** | https://voice-ai-agent-patient-registration.onrender.com/ |
 | **API docs** | https://voice-ai-agent-patient-registration.onrender.com/docs |
