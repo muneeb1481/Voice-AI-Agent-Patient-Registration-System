@@ -1,0 +1,133 @@
+{
+  "_comment": "Five tools to create in Vapi (Tools -> Create Tool -> Function). Set each tool's Server URL to https://<your-app>/vapi/tools and add header X-Vapi-Secret = <VAPI_SERVER_SECRET>. Then attach all three to the assistant.",
+  "tools": [
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "lookup_patient",
+        "description": "Check whether a patient record already exists for a phone number. Call this once, right after the caller gives their phone number, before collecting anything else.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "phone_number": {
+              "type": "string",
+              "description": "Caller's 10-digit US phone number, digits only."
+            }
+          },
+          "required": ["phone_number"]
+        }
+      },
+      "messages": [
+        { "type": "request-start", "content": "Let me pull that up." }
+      ]
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "register_patient",
+        "description": "Save a new patient record. Only call this AFTER the caller has verbally confirmed the read-back of their information.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "first_name": { "type": "string" },
+            "last_name": { "type": "string" },
+            "date_of_birth": { "type": "string", "description": "MM/DD/YYYY" },
+            "sex": { "type": "string", "enum": ["Male", "Female", "Other", "Decline to Answer"] },
+            "phone_number": { "type": "string", "description": "10 digits, no punctuation" },
+            "email": { "type": "string" },
+            "address_line_1": { "type": "string" },
+            "address_line_2": { "type": "string", "description": "Apt/suite/unit, omit if none" },
+            "city": { "type": "string" },
+            "state": { "type": "string", "description": "2-letter US state abbreviation" },
+            "zip_code": { "type": "string", "description": "5-digit or ZIP+4" },
+            "insurance_provider": { "type": "string" },
+            "insurance_member_id": { "type": "string" },
+            "preferred_language": { "type": "string", "description": "Defaults to English" },
+            "emergency_contact_name": { "type": "string" },
+            "emergency_contact_phone": { "type": "string", "description": "10 digits" }
+          },
+          "required": [
+            "first_name", "last_name", "date_of_birth", "sex", "phone_number",
+            "address_line_1", "city", "state", "zip_code"
+          ]
+        }
+      },
+      "messages": [
+        { "type": "request-start", "content": "Perfect, saving that now." }
+      ]
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "update_patient",
+        "description": "Update an existing patient record. Requires the patient_id returned by lookup_patient. Send only the fields that changed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "patient_id": { "type": "string", "description": "UUID from lookup_patient" },
+            "first_name": { "type": "string" },
+            "last_name": { "type": "string" },
+            "date_of_birth": { "type": "string", "description": "MM/DD/YYYY" },
+            "sex": { "type": "string", "enum": ["Male", "Female", "Other", "Decline to Answer"] },
+            "phone_number": { "type": "string" },
+            "email": { "type": "string" },
+            "address_line_1": { "type": "string" },
+            "address_line_2": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "zip_code": { "type": "string" },
+            "insurance_provider": { "type": "string" },
+            "insurance_member_id": { "type": "string" },
+            "preferred_language": { "type": "string" },
+            "emergency_contact_name": { "type": "string" },
+            "emergency_contact_phone": { "type": "string" }
+          },
+          "required": ["patient_id"]
+        }
+      },
+      "messages": [
+        { "type": "request-start", "content": "One moment while I update that." }
+      ]
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "list_appointment_slots",
+        "description": "Get the next few available appointment openings. Call this only after the caller has been registered and has said they'd like to book a first appointment.",
+        "parameters": { "type": "object", "properties": {} }
+      },
+      "messages": [
+        { "type": "request-start", "content": "Let me check what's open." }
+      ]
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "book_appointment",
+        "description": "Book one of the slots returned by list_appointment_slots.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "slot_id": {
+              "type": "string",
+              "description": "The exact slot_id from list_appointment_slots, e.g. 2026-07-29T09:00"
+            },
+            "patient_id": {
+              "type": "string",
+              "description": "The patient_id from register_patient or lookup_patient"
+            }
+          },
+          "required": ["slot_id"]
+        }
+      },
+      "messages": [
+        { "type": "request-start", "content": "Booking that now." }
+      ]
+    }
+  ]
+}

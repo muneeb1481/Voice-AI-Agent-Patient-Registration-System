@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patient Intake — Live Dashboard</title>
+<style>
+  /* Colour roles, not raw hex, so light/dark swap in one place.
+     Single-series blue from the validated sequential ramp. */
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f4f2;   /* page      */
+    --surface-1: #fcfcfb;   /* panels    */
+    --surface-2: #efefec;   /* insets    */
+    --line:      #e0e0db;
+    --text-1:    #0b0b0b;
+    --text-2:    #52514e;
+    --text-3:    #86857f;
+    --series-1:  #2a78d6;
+    --series-1-soft: #cde2fb;
+    --good:      #0f9d63;
+    --shadow: 0 1px 2px rgba(11,11,11,.05), 0 4px 12px rgba(11,11,11,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211;
+      --surface-1: #1a1a19;
+      --surface-2: #232322;
+      --line:      #2f2f2c;
+      --text-1:    #ffffff;
+      --text-2:    #c3c2b7;
+      --text-3:    #8b8a80;
+      --series-1:  #3987e5;
+      --series-1-soft: #184f95;
+      --good:      #3fb984;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232322;
+    --line: #2f2f2c; --text-1: #fff; --text-2: #c3c2b7; --text-3: #8b8a80;
+    --series-1: #3987e5; --series-1-soft: #184f95; --good: #3fb984; --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1.75rem 1.25rem 3rem; background: var(--surface-0); color: var(--text-1);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  header { display: flex; align-items: center; gap: .85rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+  h1 { font-size: 1.3rem; margin: 0; letter-spacing: -.015em; }
+  .live { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+  .dot { animation: pulse 2.4s ease-in-out infinite; }
+  .spacer { margin-left: auto; }
+
+  input, button, select {
+    font: inherit; padding: .45rem .7rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--surface-1); color: var(--text-1);
+  }
+  input::placeholder { color: var(--text-3); }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--series-1); }
+  :focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+
+  /* ---- stat tiles ------------------------------------------------------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+           gap: .85rem; margin-bottom: .85rem; }
+  .tile { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px;
+          padding: .95rem 1.05rem; box-shadow: var(--shadow); }
+  .tile .label { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em;
+                 color: var(--text-3); font-weight: 600; }
+  .tile .value { font-size: 2rem; line-height: 1.15; margin-top: .3rem;
+                 font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .tile .sub { font-size: .78rem; color: var(--text-2); margin-top: .15rem; }
+
+  /* ---- panels ----------------------------------------------------------- */
+  .grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: .85rem; margin-bottom: .85rem; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px;
+           box-shadow: var(--shadow); overflow: hidden; }
+  .panel > h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .07em;
+                color: var(--text-3); font-weight: 600; margin: 0;
+                padding: .9rem 1.05rem; border-bottom: 1px solid var(--line); }
+  .panel-body { padding: 1.05rem; }
+
+  /* ---- bar chart (single series -> no legend; title names it) ----------- */
+  .chart { display: flex; align-items: flex-end; gap: 2px; height: 132px; }
+  .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
+         align-items: center; gap: .4rem; height: 100%; position: relative; }
+  .bar { width: 100%; max-width: 46px; background: var(--series-1);
+         border-radius: 4px 4px 0 0; min-height: 2px; transition: opacity .12s; }
+  .bar.zero { background: var(--series-1-soft); }
+  .col:hover .bar { opacity: .78; }
+  .col .cap { font-size: .7rem; color: var(--text-3); white-space: nowrap; }
+  .col .val { font-size: .74rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .chart-foot { display: flex; gap: 2px; margin-top: .4rem; }
+  .chart-foot > div { flex: 1; text-align: center; font-size: .7rem; color: var(--text-3); }
+
+  /* ---- lists ------------------------------------------------------------ */
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { display: flex; align-items: baseline; gap: .6rem; padding: .5rem 0;
+             border-bottom: 1px solid var(--line); font-size: .88rem; }
+  .list li:last-child { border-bottom: none; }
+  .list .who { font-weight: 600; }
+  .list .when { margin-left: auto; color: var(--text-2); font-size: .82rem; white-space: nowrap; }
+
+  /* ---- table ------------------------------------------------------------ */
+  .scroller { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 880px; }
+  th, td { text-align: left; padding: .62rem .9rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em;
+       color: var(--text-3); font-weight: 600; background: var(--surface-1);
+       position: sticky; top: 0; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--surface-2); }
+  tbody tr[aria-expanded="true"] { background: var(--surface-2); }
+  .name { font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--text-2); }
+  .chev { display: inline-block; width: .8em; color: var(--text-3); transition: transform .12s; }
+  tr[aria-expanded="true"] .chev { transform: rotate(90deg); }
+
+  .pill { display: inline-block; padding: .12rem .55rem; border-radius: 999px; font-size: .75rem;
+          background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+  .pill.none { background: var(--surface-2); color: var(--text-3); }
+
+  /* ---- detail row ------------------------------------------------------- */
+  .detail { padding: 1rem 1.1rem 1.2rem; background: var(--surface-2); white-space: normal; }
+  .detail dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+               gap: .1rem 1.5rem; margin: 0 0 .6rem; }
+  .detail dt { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+               color: var(--text-3); font-weight: 600; margin-top: .55rem; }
+  .detail dd { margin: 0; font-size: .88rem; }
+  .detail h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em;
+               color: var(--text-3); margin: 1rem 0 .35rem; }
+  .detail pre { white-space: pre-wrap; margin: 0; font-size: .82rem; line-height: 1.5;
+                background: var(--surface-1); border: 1px solid var(--line);
+                border-radius: 8px; padding: .7rem .85rem; max-height: 240px; overflow-y: auto; }
+  .empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-3); }
+  footer { margin-top: 1.1rem; color: var(--text-3); font-size: .8rem; }
+  code { background: var(--surface-1); border: 1px solid var(--line);
+         padding: .08rem .35rem; border-radius: 5px; font-size: .85em; }
+
+  /* tooltip */
+  #tip { position: fixed; pointer-events: none; z-index: 20; opacity: 0; transition: opacity .1s;
+         background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px;
+         padding: .4rem .6rem; font-size: .8rem; box-shadow: var(--shadow); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Patient Intake</h1>
+    <span class="live"><span class="dot"></span>live — refreshes every 15s</span>
+    <div class="spacer"></div>
+    <input id="search" type="search" placeholder="Filter by name, city or phone…" autocomplete="off" style="width:15rem">
+    <button id="refresh" type="button">Refresh</button>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Registrations per day — last 7 days</h2>
+      <div class="panel-body">
+        <div class="chart" id="chart"></div>
+        <div class="chart-foot" id="chartFoot"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Upcoming appointments</h2>
+      <div class="panel-body">
+        <ul class="list" id="appts"></ul>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>All patients</h2>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>DOB</th><th>Sex</th><th>Phone</th>
+            <th>City</th><th>State</th><th>Language</th><th>Appt</th><th>Registered</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty" hidden>No patients yet — call the number to register one.</div>
+  </section>
+
+  <footer>
+    Click any row for full demographics, appointments and the call transcript.
+    Served from <code>GET /patients</code>, <code>/appointments</code> and <code>/calls</code>.
+  </footer>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { patients: [], appointments: [], calls: [], openId: null };
+
+/* ---- formatting ---------------------------------------------------------- */
+const esc = (v) => (v === null || v === undefined || v === '' ? '—' : String(v))
+  .replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+const fmtPhone = (p) => p ? `(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}` : '—';
+const fmtDate  = (d) => { if (!d) return '—'; const [y,m,dd] = d.split('-'); return `${m}/${dd}/${y}`; };
+const fmtStamp = (s) => s ? new Date(s).toLocaleString(undefined,
+  { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+const fmtSlot  = (s) => s ? new Date(s).toLocaleString(undefined,
+  { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+const dayKey   = (iso) => new Date(iso).toISOString().slice(0, 10);
+
+/* ---- data ---------------------------------------------------------------- */
+async function load() {
+  const [patients, appointments, calls] = await Promise.all([
+    fetch('/patients?limit=500').then(r => r.json()).then(b => b.data || []).catch(() => []),
+    fetch('/appointments').then(r => r.json()).then(b => b.data || []).catch(() => []),
+    fetch('/calls?limit=200').then(r => r.json()).then(b => b.data || []).catch(() => []),
+  ]);
+  Object.assign(state, { patients, appointments, calls });
+  renderTiles(); renderChart(); renderAppointments(); renderTable();
+}
+
+/* ---- stat tiles (headline numbers, no plot -> no tooltip) ---------------- */
+function renderTiles() {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayCount = state.patients.filter(p => dayKey(p.created_at) === today).length;
+  const booked = state.appointments.filter(a => a.status === 'booked');
+  const upcoming = booked.filter(a => new Date(a.starts_at) >= new Date()).length;
+  const withInsurance = state.patients.filter(p => p.insurance_provider).length;
+  const pct = state.patients.length
+    ? Math.round(100 * withInsurance / state.patients.length) : 0;
+
+  const tile = (label, value, sub) =>
+    `<div class="tile"><div class="label">${label}</div>
+       <div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+
+  $('tiles').innerHTML =
+    tile('Patients', state.patients.length, `${todayCount} registered today`) +
+    tile('Appointments', booked.length, `${upcoming} still upcoming`) +
+    tile('Calls logged', state.calls.length, 'transcripts &amp; registrations') +
+    tile('Insurance on file', `${pct}%`, `${withInsurance} of ${state.patients.length} patients`);
+}
+
+/* ---- bar chart: one series, so the panel title is the legend ------------- */
+function renderChart() {
+  const days = [...Array(7)].map((_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const counts = days.map(d => state.patients.filter(p => dayKey(p.created_at) === d).length);
+  const peak = Math.max(1, ...counts);
+
+  $('chart').innerHTML = days.map((d, i) => {
+    const h = Math.round((counts[i] / peak) * 100);
+    return `<div class="col" data-day="${d}" data-count="${counts[i]}">
+              <span class="val">${counts[i] || ''}</span>
+              <div class="bar ${counts[i] ? '' : 'zero'}" style="height:${counts[i] ? Math.max(h, 3) : 2}%"></div>
+            </div>`;
+  }).join('');
+
+  $('chartFoot').innerHTML = days.map(d => {
+    const dt = new Date(d + 'T00:00');
+    return `<div>${dt.toLocaleDateString(undefined, { weekday: 'short' })}</div>`;
+  }).join('');
+
+  $('chart').querySelectorAll('.col').forEach(col => {
+    col.addEventListener('mousemove', (e) => {
+      const dt = new Date(col.dataset.day + 'T00:00');
+      const n = col.dataset.count;
+      showTip(e, `${dt.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} · ` +
+                 `${n} registration${n === '1' ? '' : 's'}`);
+    });
+    col.addEventListener('mouseleave', hideTip);
+  });
+}
+
+function showTip(e, html) {
+  const tip = $('tip');
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  tip.style.left = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 10) + 'px';
+  tip.style.top = (e.clientY - 34) + 'px';
+}
+const hideTip = () => { $('tip').style.opacity = 0; };
+
+/* ---- upcoming appointments ---------------------------------------------- */
+function renderAppointments() {
+  const now = new Date();
+  const upcoming = state.appointments
+    .filter(a => a.status === 'booked' && new Date(a.starts_at) >= now)
+    .slice(0, 8);
+
+  $('appts').innerHTML = upcoming.length
+    ? upcoming.map(a => `<li>
+        <span class="who">${esc(a.first_name)} ${esc(a.last_name)}</span>
+        <span class="muted">${esc(a.provider)}</span>
+        <span class="when">${fmtSlot(a.starts_at)}</span></li>`).join('')
+    : `<li class="muted">Nothing booked yet — the agent offers a slot after each registration.</li>`;
+}
+
+/* ---- patients table ------------------------------------------------------ */
+function apptFor(id) {
+  return state.appointments.find(a => a.patient_id === id && a.status === 'booked');
+}
+
+function renderTable() {
+  const q = $('search').value.trim().toLowerCase();
+  const shown = q
+    ? state.patients.filter(p => [p.first_name, p.last_name, p.city, p.phone_number]
+        .join(' ').toLowerCase().includes(q))
+    : state.patients;
+
+  $('empty').hidden = shown.length > 0;
+  $('rows').innerHTML = shown.map(p => {
+    const appt = apptFor(p.patient_id);
+    return `<tr data-id="${p.patient_id}" aria-expanded="false">
+      <td class="name"><span class="chev">›</span> ${esc(p.first_name)} ${esc(p.last_name)}</td>
+      <td class="num">${fmtDate(p.date_of_birth)}</td>
+      <td>${esc(p.sex)}</td>
+      <td class="num">${fmtPhone(p.phone_number)}</td>
+      <td>${esc(p.city)}</td>
+      <td>${esc(p.state)}</td>
+      <td>${esc(p.preferred_language)}</td>
+      <td>${appt ? `<span class="pill">${fmtSlot(appt.starts_at)}</span>`
+                 : `<span class="pill none">none</span>`}</td>
+      <td class="muted num">${fmtStamp(p.created_at)}</td></tr>`;
+  }).join('');
+
+  $('rows').querySelectorAll('tr').forEach(tr =>
+    tr.addEventListener('click', () => toggle(tr, tr.dataset.id)));
+
+  if (state.openId && shown.some(p => p.patient_id === state.openId)) {
+    const tr = $('rows').querySelector(`tr[data-id="${state.openId}"]`);
+    if (tr) expand(tr, state.openId);
+  }
+}
+
+function toggle(tr, id) {
+  const open = tr.getAttribute('aria-expanded') === 'true';
+  document.querySelectorAll('.detail-row').forEach(el => el.remove());
+  document.querySelectorAll('tbody tr').forEach(el => el.setAttribute('aria-expanded', 'false'));
+  if (open) { state.openId = null; return; }
+  state.openId = id;
+  expand(tr, id);
+}
+
+function expand(tr, id) {
+  if (tr.nextElementSibling?.classList.contains('detail-row')) return;
+  tr.setAttribute('aria-expanded', 'true');
+
+  const p = state.patients.find(x => x.patient_id === id);
+  const appts = state.appointments.filter(a => a.patient_id === id);
+  const calls = state.calls.filter(c => c.patient_id === id);
+  const transcript = calls.map(c => c.payload?.transcript).find(Boolean);
+  const summary = calls.map(c => c.payload?.summary).find(Boolean);
+
+  const f = (label, value) => `<dt>${label}</dt><dd>${esc(value)}</dd>`;
+  const row = document.createElement('tr');
+  row.className = 'detail-row';
+  row.innerHTML = `<td class="detail" colspan="9">
+    <dl>
+      ${f('Patient ID', p.patient_id)}
+      ${f('Street', [p.address_line_1, p.address_line_2].filter(Boolean).join(', '))}
+      ${f('City / State / ZIP', `${p.city}, ${p.state} ${p.zip_code}`)}
+      ${f('Email', p.email)}
+      ${f('Insurance', p.insurance_provider)}
+      ${f('Member ID', p.insurance_member_id)}
+      ${f('Emergency contact', p.emergency_contact_name)}
+      ${f('Emergency phone', p.emergency_contact_phone ? fmtPhone(p.emergency_contact_phone) : null)}
+      ${f('Last updated', fmtStamp(p.updated_at))}
+    </dl>
+    ${appts.length ? `<h3>Appointments</h3>${appts.map(a =>
+        `<span class="pill">${fmtSlot(a.starts_at)} · ${esc(a.provider)}</span>`).join(' ')}` : ''}
+    ${summary ? `<h3>Call summary</h3><p style="margin:0;font-size:.88rem">${esc(summary)}</p>` : ''}
+    ${transcript ? `<h3>Transcript</h3><pre>${esc(transcript)}</pre>` : ''}
+  </td>`;
+  tr.after(row);
+}
+
+$('search').addEventListener('input', renderTable);
+$('refresh').addEventListener('click', load);
+load();
+setInterval(load, 15000);   // registrations land mid-call; keep the page fresh
+</script>
+</body>
+</html>
