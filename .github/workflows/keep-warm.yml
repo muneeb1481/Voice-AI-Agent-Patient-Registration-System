@@ -1,0 +1,22 @@
+# Render's free tier spins an instance down after 15 minutes idle, and the cold
+# start takes ~50s — which a caller hears as dead air mid-conversation. Pinging
+# /health keeps the instance up. Cheaper than a paid always-on instance for a
+# service whose real traffic is a handful of phone calls.
+#
+# GitHub's scheduler can drift 5-15 min under load, so the interval is set well
+# below the 15-minute idle window to absorb that.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:        # lets you warm it manually right before a demo call
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          curl --fail --silent --show-error --max-time 90 \
+            https://voice-ai-agent-patient-registration.onrender.com/health

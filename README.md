@@ -6,9 +6,12 @@ conversation, persists them to a database, and exposes them over a REST API.
 | | |
 |---|---|
 | **Phone number** | `+1 XXX XXX XXXX` _(fill in after linking the Twilio number in Vapi)_ |
-| **API base URL** | `https://<your-app>.onrender.com` _(fill in after deploy)_ |
-| **Dashboard** | `<API base URL>/` — live table of registered patients |
-| **API docs** | `<API base URL>/docs` (auto-generated OpenAPI) |
+| **API base URL** | https://voice-ai-agent-patient-registration.onrender.com |
+| **Dashboard** | https://voice-ai-agent-patient-registration.onrender.com/ |
+| **API docs** | https://voice-ai-agent-patient-registration.onrender.com/docs |
+
+> Hosted on Render's free tier, kept warm by a scheduled ping so calls don't hit a
+> cold start. No credentials are needed to browse the dashboard or read the API.
 
 ---
 
