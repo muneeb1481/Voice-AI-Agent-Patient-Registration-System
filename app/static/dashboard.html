@@ -183,6 +183,15 @@
     </section>
   </div>
 
+  <!-- Every call is logged, including ones that ended without a registration.
+       Those have no patient to nest under, so they'd otherwise be invisible. -->
+  <section class="panel" style="margin-bottom:.85rem">
+    <h2>Recent calls</h2>
+    <div class="panel-body">
+      <ul class="list" id="calls"></ul>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>All patients</h2>
     <div class="scroller">
@@ -229,7 +238,43 @@ async function load() {
     fetch('/calls?limit=200').then(r => r.json()).then(b => b.data || []).catch(() => []),
   ]);
   Object.assign(state, { patients, appointments, calls });
-  renderTiles(); renderChart(); renderAppointments(); renderTable();
+  renderTiles(); renderChart(); renderAppointments(); renderCalls(); renderTable();
+}
+
+/* ---- recent calls, including ones that never produced a patient ---------- */
+function renderCalls() {
+  if (!state.calls.length) {
+    $('calls').innerHTML = `<li class="muted">No calls logged yet.</li>`;
+    return;
+  }
+  $('calls').innerHTML = state.calls.slice(0, 10).map(c => {
+    const p = state.patients.find(x => x.patient_id === c.patient_id);
+    const outcome = p
+      ? `<span class="pill">registered ${esc(p.first_name)} ${esc(p.last_name)}</span>`
+      : `<span class="pill none">no registration</span>`;
+    const transcript = c.payload?.transcript;
+    const reason = c.payload?.ended_reason;
+    return `<li>
+      ${outcome}
+      <span class="muted">${esc(reason || c.payload?.event || 'call')}</span>
+      ${transcript ? `<a href="#" class="muted" data-tx="${encodeURIComponent(transcript)}"
+           style="color:var(--series-1)">transcript</a>` : ''}
+      <span class="when">${fmtStamp(c.created_at)}</span></li>`;
+  }).join('');
+
+  $('calls').querySelectorAll('[data-tx]').forEach(a =>
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const li = a.closest('li');
+      const open = li.nextElementSibling?.classList.contains('tx');
+      li.parentElement.querySelectorAll('.tx').forEach(el => el.remove());
+      if (open) return;
+      const pre = document.createElement('li');
+      pre.className = 'tx';
+      pre.innerHTML = `<pre style="white-space:pre-wrap;font-size:.8rem;margin:0;
+        max-height:220px;overflow-y:auto;width:100%">${esc(decodeURIComponent(a.dataset.tx))}</pre>`;
+      li.after(pre);
+    }));
 }
 
 /* ---- stat tiles (headline numbers, no plot -> no tooltip) ---------------- */
